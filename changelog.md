@@ -1,6 +1,59 @@
 # Changelog
 
-All notable changes to the Spicetify Flatpak Automator will be documented in this file.
+All notable changes to easy-spicetify-linux are documented in this file.
+
+## [3.1.0] - 2026-11-10
+
+### Breaking changes
+- **`setup.conf` is no longer sourced.** It was an undocumented shell-execution risk. Existing
+  files are reported and ignored; use the CLI flags/environment instead.
+- **Dependency auto-install was removed.** Missing commands now produce explicit, distro-aware
+  install hints instead of running broad package-manager operations.
+- **`SPICETIFY_STATE` is rejected.** Spicetify v2.46.4 treats that override differently (it skips
+  the `/Backup` suffix), so recovery would be unsafe. Use `XDG_STATE_HOME`.
+
+### Added
+- Experimental native Spotify discovery for Debian/Ubuntu `/usr/share/spotify`, Arch/AUR
+  `/opt/spotify`, and `spotify-launcher` under `$XDG_DATA_HOME`.
+- `--repair`/`--fix`: state-aware recovery after Spotify updates. Stock/mixed uses
+  `spicetify backup apply --no-restart`; already-patched with a matching backup uses
+  `spicetify restore backup apply --no-restart`; outdated/empty backups fail safely.
+- `--restore`: runs only `spicetify restore --no-restart` and preserves CLI/themes/settings/backups.
+- `--yes`, `--spotify-type`, `--spotify-path`, `--prefs-path`, and `--no-marketplace`.
+- Verified direct Marketplace release installation after a successful apply.
+
+### Changed
+- Genuinely read-only `--dry-run` in every mode and ordering; no config sourcing, downloads,
+  package/spicetify calls, process signals, rc edits, or deletions.
+- Official Spicetify releases are downloaded over HTTPS with retries/timeouts and required
+  SHA-256 verification from the release API. Custom URLs remain supported; a supplied checksum is
+  always verified.
+- Existing CLI installations are never reinstalled automatically.
+- Permissions use narrow `u+rwX` for user-owned trees and consented targeted `setfacl` ACLs for
+  system installs. System-wide installs get read/traverse-only normalization after apply/restore.
+- Repair/restore/uninstall rediscover the Spotify target and verify config read-back before
+  destructive work; system paths are supported without guessing.
+- PATH blocks are marker-validated, malformed blocks are preserved, and uninstall removes only the
+  managed block.
+- Uninstall prevalidates all targets before restoring and removes only directories with evidence
+  (`spicetify` binary, `config-xpui.ini`, `Backup`/`Extracted`); symlinked/untrusted paths are
+  preserved with manual instructions.
+- README identity/links corrected to `easy-spicetify-linux`; native support documented as
+  experimental, with limitations and no GUI proof claimed.
+
+### Fixed
+- Dry-run no longer calls `spicetify config`, writes rc files, downloads, or removes anything.
+- Temp files are tracked correctly and cleaned on failure/signals.
+- `printf` argument mismatches, nounset `EUID`/`SUDO_USER` paths, and Flatpak process detection
+  (`--columns=application`) fixed.
+- Quoted Spotify prefs versions are handled when comparing backup state.
+- Nested external symlinks under `Apps` are rejected; internal containment is allowed.
+- Marketplace no longer inherits the upstream theme-replacement bug and no longer resets extra
+  settings.
+
+### Security
+- No world-writable `chmod`, no recursive `chown`, no broad XDG/root deletions, and no
+  unverified official artifacts.
 
 ## [3.0.6] - 2026-05-02
 ### Added

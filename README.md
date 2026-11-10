@@ -1,167 +1,138 @@
-# 🌶️ Spicetify Flatpak Automator
+# 🌶️ easy-spicetify-linux
 
-### The (Mostly) Hands-Off Spicetify Installer
+One friendly Bash script for Spicetify on Linux, with **Flatpak** and **experimental native
+Spotify** support. It discovers your Spotify installation, installs the official Spicetify CLI
+when needed, configures the paths, applies your theme, and gives you conservative recovery modes
+for Spotify updates.
 
-**One script to fix Spicetify + Flatpak headaches.** This script exists because fighting Spicetify + Flatpak can be a trial-and-error nightmare of broken paths, missing prefs, and permission quirks. The goal now is simple: you run **one script**, it does the annoying parts, and you end up with a customized Spotify + Marketplace.
+> Native Spotify support is experimental. The verified official Spicetify release binaries are
+> currently **Linux amd64 only**; on other architectures the script fails honestly with
+> package-manager/source guidance instead of inventing a download URL.
 
-If this saves you a couple of hours or some sanity, a ⭐ on GitHub is genuinely appreciated and helps keep the project polished!
-
-[![GitHub Stars](https://img.shields.io/github/stars/boudywho/easy-spicetify-arch?style=for-the-badge&logo=github&label=Star%20Me!)](https://github.com/boudywho/easy-spicetify-arch/stargazers)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](./LICENSE)
 
----
+## Quick start
 
-## ✨ What Does This Do?
-
-* **Automates Everything:** Automatically detects your package manager, installs dependencies, downloads the official Spicetify installer, and patches the app.
-* **Smart Path Detection:** Automatically finds where Flatpak hid your Spotify installation (user or system) and wires it into Spicetify.
-* **Fixes Permissions:** Handles the annoyingly complex Flatpak permission issues automatically.
-* **Marketplace Ready:** Hooks into the official installer and prompts you to install the Spicetify Marketplace.
-* **Safe to Re-run:** Idempotent by design. If you run it multiple times, it won't trash your setup; it just updates or fixes things.
-* **Dry-Run Support:** Test the script without making changes using `-n/--dry-run`.
-* **Uninstall Support:** Remove Spicetify and restore Spotify to vanilla state with `-u/--uninstall`.
-
----
-
-## 📦 Supported Distros & Package Managers
-
-**Cross-distro compatible:**
-- Arch, Artix, EndeavourOS, Manjaro, Garuda (pacman)
-- Debian, Ubuntu, Mint, Pop!_OS, Zorin, elementary, Kali (apt)
-- Fedora, RHEL, CentOS, Rocky, Alma, Amazon Linux, Nobara (dnf/yum)
-- openSUSE, SUSE (zypper)
-- Alpine (apk)
-- Gentoo (emerge)
-- Void (xbps)
-- Solus (eopkg)
-- Clear Linux (swupd)
-- NixOS (nix)
-
-**Shell support:** bash, zsh, fish
-
----
-
-## 📦 Installation
-
-### ✅ Requirements
-
-You must have the **Spotify Flatpak** installed from Flathub and **run it at least once**.
-*(The script will offer to install Flatpak for you if it isn't detected.)*
+### Flatpak Spotify (supported)
 
 ```bash
 flatpak install flathub com.spotify.Client
-flatpak run com.spotify.Client # Open once to generate config files, then close it.
-```
-
-### 🚀 Run the Automator
-
-1. **Clone the repository** (or download the source zip from Releases)
-```bash
-git clone https://github.com/boudywho/easy-spicetify-arch.git
-cd easy-spicetify-arch
-```
-
-2. **Make executable and run**
-```bash
-chmod +x spicetify-universal.sh
+flatpak run com.spotify.Client   # open once, log in, then close it
+git clone https://github.com/boudywho/easy-spicetify-linux.git
+cd easy-spicetify-linux
 ./spicetify-universal.sh
 ```
 
-*(Note: During installation, type `y` when asked if you want to install the Spicetify Marketplace unless you explicitly don't want it. Once finished, restart Spotify to see your changes!)*
+### Native Spotify (experimental)
 
----
+Supported layouts:
 
-## 🛠️ Command Line Options
+- Debian/Ubuntu: `/usr/share/spotify`
+- Arch/AUR: `/opt/spotify`
+- `spotify-launcher`: `$XDG_DATA_HOME/spotify-launcher/install/usr/share/spotify`
+
+Open Spotify once so `prefs` exists, then run:
+
+```bash
+./spicetify-universal.sh --spotify-type native
+```
+
+Snap and Nix store installations are unsupported and are never modified. If several Spotify
+installations exist, the script asks which one to use; noninteractive runs must pass
+`--spotify-type` or `--spotify-path`.
+
+## After a Spotify update
+
+```bash
+./spicetify-universal.sh --repair
+```
+
+`--repair` inspects the actual Spotify and backup state:
+
+- stock or mixed Apps → `spicetify backup apply --no-restart`
+- already patched with a matching backup → `spicetify restore backup apply --no-restart`
+- patched with an outdated/empty backup, or an invalid Apps folder → fails with exact guidance
+
+It never restores a stale backup over a newer Spotify client. The script itself never deletes or
+clears your backup; the upstream CLI may refresh a validated stock/mixed backup during
+`backup apply`. If automatic recovery is unsupported, update Spicetify and reinstall Spotify to
+stock before running `spicetify backup apply`.
+
+## Commands
 
 | Option | Description |
-|--------|-------------|
-| `-h, --help` | Show help message |
-| `-d, --debug` | Enable debug mode (set -x) |
-| `-n, --dry-run` | Show what would be done without executing |
-| `-u, --uninstall` | Uninstall Spicetify and restore Spotify |
+| --- | --- |
+| `-h, --help` | Show help |
+| `-d, --debug` | Enable `set -x` |
+| `-n, --dry-run` | Preview only: creates nothing, downloads nothing, calls no mutating tool |
+| `-u, --uninstall` | Restore first, then remove only validated Spicetify-managed data |
+| `--repair`, `--fix` | Conservative recovery after a Spotify update |
+| `--restore` | Run `spicetify restore --no-restart` only |
+| `-y, --yes` | Explicit consent for noninteractive runs |
+| `--spotify-type auto\|flatpak\|native` | Choose the Spotify installation type |
+| `--spotify-path ABS` | Explicit Spotify app directory (must contain `Apps/`) |
+| `--prefs-path ABS` | Explicit Spotify prefs file |
+| `--no-marketplace` | Skip Marketplace installation |
 | `-v, --version` | Show version |
-| `-V, --verbose` | Enable verbose output |
+| `-V, --verbose` | Extra preflight detail |
 
-### Environment Variables
+Root may run `--help`, `--version` and `--dry-run`; real setup/repair/restore/uninstall runs are
+refused as root.
+
+## Environment
 
 | Variable | Description |
-|----------|-------------|
-| `DEBUG=1` | Enable debug output |
-| `DRY_RUN=1` | Dry-run mode (no changes) |
-| `VERBOSE=1` | Enable verbose output |
-| `SPICETIFY_INSTALL_URL=` | Override installer URL |
-| `SPICETIFY_INSTALLER_SHA256=` | Expected SHA256 of installer |
+| --- | --- |
+| `DEBUG=1`, `DRY_RUN=1`, `VERBOSE=1` | Same as the flags |
+| `SPICETIFY_INSTALL_URL=https://...` | Custom HTTPS release archive or legacy installer |
+| `SPICETIFY_INSTALLER_SHA256=...` | Recommended integrity check for custom downloads (warns if absent) |
+| `SPICETIFY_CONFIG` | Upstream Spicetify config directory |
+| `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME`, `ZDOTDIR` | Standard XDG/shell paths |
 
----
+`SPICETIFY_STATE` is rejected with an explanation: Spicetify v2.46.4 treats that override
+differently (it skips the `/Backup` suffix), so recovery would be unsafe. Use `XDG_STATE_HOME`.
 
-## 🛠️ Troubleshooting
+`setup.conf` is **no longer sourced**. It was an undocumented shell-execution risk; use the CLI
+options above instead. Existing files are reported and ignored.
 
-Most issues fall into one of these buckets:
+## Safety and limitations
 
-**"Cannot detect Spotify prefs file" / `prefs_path` complaints**
-> You must open Spotify at least once before running the script so it creates the necessary config files. Run `flatpak run com.spotify.Client`, close it, and run the script again.
+- Dry-run is read-only across every mode, including `--dry-run --uninstall` in either order.
+- Downloads are HTTPS-only with redirects restricted to HTTPS, retries, timeouts, and SHA-256
+  verification from the official GitHub release API. Checksums are never silently ignored.
+- Existing Spicetify CLI installations are never reinstalled automatically.
+- Permissions are targeted: user-owned trees get `u+rwX`; system-wide trees get a consented
+  `setfacl` ACL on the app root and `Apps`, with a default ACL for recreated `Apps`. There is no
+  world-writable mode and no recursive chown. System-wide installs get read/traverse
+  normalization (`a+rX`, never write) so other users can still use Spotify.
+- Uninstall requires a successful restore first and removes only validated directories with
+  evidence (`config-xpui.ini`, `Backup`/`Extracted`, or a `spicetify` binary) and only the marked
+  PATH block. Symlinked or untrusted paths are preserved with manual instructions.
+- Marketplace is installed only after valid paths and a successful apply, with consent, from the
+  verified Marketplace release zip. If it is skipped or fails, the script says so.
+- Missing dependencies are reported with explicit install commands; the script does not run
+  broad automatic package installations or install Flatpak for native setups.
+- No GUI/desktop proof is claimed for Flatpak or native flows. Native support is tested against
+  the layouts above, not every distro or Spotify build.
 
-**Permission Errors**
-> The script attempts to fix these automatically (e.g., running `chmod -R a+wr` on the Flatpak Spotify directories). If Spicetify still complains about writing/patching, try running the script again.
+## Testing
 
-**Need Help?**
-> If anything looks off or half-works, open an [issue on GitHub](https://github.com/boudywho/easy-spicetify-arch/issues). Please include your script version, your distro/DE, and the **full** script output.
-
----
-
-<details>
-<summary><h2>🧠 Manual Installation (For Curious / Advanced Users)</h2></summary>
-
-*You **don't** need this if you use the script. This is just the "what the script automates for you" section.*
-
-### 1. Install prerequisites
-
-```bash
-sudo pacman -S curl unzip --noconfirm # Or your distro's equivalent
-```
-
-### 2. Install Spicetify CLI + Marketplace
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/spicetify/cli/main/install.sh | sh
-```
-*Follow the prompts, and make sure `spicetify` ends up in your `PATH`.*
-
-### 3. Find Spotify's Flatpak paths
-
-**Spotify install path:**
+Tests use Python 3 stdlib `unittest`, isolated temporary `HOME`/XDG trees, and fake external
+commands. They do not install packages, touch real Spotify, or make network requests.
 
 ```bash
-sudo flatpak info --show-location com.spotify.Client
-```
-The **spotify_path** is usually `<that_location>/files/extra/share/spotify` or `<that_location>/files/share/spotify`.
-
-**Spotify prefs path:**
-Usually `~/.var/app/com.spotify.Client/config/spotify/prefs`.
-
-### 4. Configure Spicetify
-
-Let Spicetify know where Spotify and your prefs live:
-
-```bash
-spicetify config spotify_path /your/spotify/path
-spicetify config prefs_path /your/prefs/path
+bash -n spicetify-universal.sh
+shellcheck spicetify-universal.sh
+python3 -m unittest discover -s tests -v
 ```
 
-### 5. Fix permissions
+## Troubleshooting
 
-Replace `<Spotify App Files Path>` with your actual path from step 3:
+- **Prefs file not found**: open Spotify once, log in, close it, and re-run.
+- **Multiple installations**: pass `--spotify-type flatpak|native` or `--spotify-path`.
+- **Permission errors on a system install**: install `acl` (for `setfacl`) and re-run; the script
+  asks before granting a targeted ACL.
+- **After an update**: run `--repair`. If it refuses, do not delete the backup; follow its printed
+  guidance and update Spicetify first.
 
-```bash
-sudo chmod -R a+wr "<Spotify App Files Path>"
-```
-
-### 6. Apply Spicetify
-
-```bash
-spicetify restore
-spicetify backup apply
-spicetify apply
-```
-
-</details>
+Official Spicetify docs: <https://spicetify.app/docs/getting-started>
