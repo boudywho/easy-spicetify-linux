@@ -166,6 +166,21 @@ class Harness(unittest.TestCase):
         for fake in self.bin.iterdir():
             if fake.name != "spicetify":
                 (self.bin_nospice / fake.name).symlink_to(fake)
+
+        self.safe_bin = self.root / "safe-bin"
+        self.safe_bin.mkdir()
+        safe_tools = [
+            "awk", "basename", "bash", "cat", "chmod", "cp", "cut", "dirname",
+            "env", "find", "getent", "grep", "gzip", "head", "id", "mkdir", "mktemp",
+            "mv", "realpath", "readlink", "rm", "sed", "setsid", "sh", "sha256sum",
+            "shasum", "sleep", "stat", "tar", "timeout", "tr", "uname", "unzip",
+        ]
+        for tool in safe_tools:
+            source = shutil.which(tool, path="/usr/bin:/bin")
+            if source:
+                (self.safe_bin / tool).symlink_to(source)
+        self.test_path = f"{self.bin}:{self.safe_bin}"
+        self.test_path_nospice = f"{self.bin_nospice}:{self.safe_bin}"
         self.env = self._base_env()
 
     def tearDown(self) -> None:
@@ -179,7 +194,7 @@ class Harness(unittest.TestCase):
             "XDG_DATA_HOME": str(self.data_home),
             "ZDOTDIR": str(self.zdotdir),
             "TMPDIR": str(self.tmpdir),
-            "PATH": f"{self.bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "PATH": self.test_path,
             "SHELL": "/bin/bash",
             "TERM": "dumb",
             "NO_COLOR": "1",
@@ -333,7 +348,7 @@ class Harness(unittest.TestCase):
         subprocess.run(
             ["chown", "-R", f"{NOBODY_UID}:{NOBODY_GID}", str(self.root)], check=True
         )
-        command = ["runuser", "-u", "nobody", "--", "env"]
+        command = ["runuser", "-u", "nobody", "--", "/usr/bin/env"]
         command.extend(f"{key}={value}" for key, value in run_env.items())
         command.extend(["bash", str(self.script_copy), *args])
         return subprocess.run(
@@ -767,6 +782,9 @@ class PermissionTests(Harness):
             (app / "Apps").chmod(0o555)
             result = self.bash(
                 """
+                # Synthetic non-owner boundary: the fixture may be runner-owned
+                # in nonroot CI, so force the system-install ACL preview branch.
+                _is_user_owned() { return 1; }
                 SPOTIFY_APP_FILES_PATH=%s
                 DRY_RUN=1
                 _ensure_writable
@@ -872,7 +890,7 @@ class InstallerTests(Harness):
             install_cli
             printf 'rc=%s exists=%s\\n' "$?" "$([ -x "$SPICETIFY_INSTALL_DIR/spicetify" ] && echo yes || echo no)"
             """,
-            env={"PATH": f"{self.bin_nospice}:{os.environ.get('PATH', '')}"},
+            env={"PATH": self.test_path_nospice},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("rc=0 exists=yes", result.stdout)
@@ -885,7 +903,7 @@ class InstallerTests(Harness):
             install_cli
             """,
             env={
-                "PATH": f"{self.bin_nospice}:{os.environ.get('PATH', '')}",
+                "PATH": self.test_path_nospice,
                 "SPICETIFY_INSTALL_URL": "https://example.invalid/spicetify.tar.gz",
                 "SPICETIFY_INSTALLER_SHA256": "0" * 64,
             },
@@ -902,7 +920,7 @@ class InstallerTests(Harness):
             install_cli
             """,
             env={
-                "PATH": f"{self.bin_nospice}:{os.environ.get('PATH', '')}",
+                "PATH": self.test_path_nospice,
                 "SPICETIFY_INSTALL_URL": "https://example.invalid/install.sh",
                 "SPICETIFY_INSTALLER_SHA256": legacy_digest,
                 "FAKE_LEGACY_EXIT": "7",
@@ -1198,8 +1216,8 @@ class RestoreAndUninstallTests(Harness):
             ( _run_uninstall )
             printf 'rc=%%s\\n' "$?"
             """
-            % f"{self.bin_nospice}:{os.environ.get('PATH', '')}",
-            env={"PATH": f"{self.bin_nospice}:{os.environ.get('PATH', '')}"},
+            % self.test_path_nospice,
+            env={"PATH": self.test_path_nospice},
         )
         self.assertIn("rc=1", result.stdout)
         self.assertIn("restore cannot be verified", self.combined(result))
@@ -1355,7 +1373,7 @@ class FullCliStrictTests(Harness):
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
         return self.cli_as_nobody(
             *args,
-            env={"PATH": f"{self.bin_nospice}:{os.environ.get('PATH', '')}"},
+            env={"PATH": self.test_path_nospice},
         )
 
     def test_full_cli_setup_strict_as_ordinary_user(self) -> None:
