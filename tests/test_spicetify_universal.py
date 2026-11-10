@@ -708,6 +708,72 @@ class DiscoveryTests(Harness):
         self.assertIn("Snap and Nix store", self.combined(result))
         self.assertIn("rc=1", result.stdout)
 
+    def test_legitimate_node_modules_symlink_is_allowed(self) -> None:
+        app = self.root / "link-app"
+        (app / "Apps" / "xpui" / "extensions").mkdir(parents=True)
+        (app / "Apps" / "xpui" / "index.html").write_text("patched", encoding="utf-8")
+        trusted = self.config_home / "spicetify" / "Extensions" / "node_modules"
+        trusted.mkdir(parents=True)
+        (trusted / "dep.js").write_text("module", encoding="utf-8")
+        (app / "Apps" / "xpui" / "extensions" / "node_modules").symlink_to(trusted)
+        result = self.bash(
+            """
+            _validate_app %s
+            printf 'rc=%%s\n' "$?"
+            """
+            % app
+        )
+        self.assertIn("rc=0", result.stdout)
+
+    def test_bundled_cli_symlink_node_modules_is_allowed(self) -> None:
+        app = self.root / "bundled-link-app"
+        (app / "Apps" / "xpui" / "extensions").mkdir(parents=True)
+        (app / "Apps" / "xpui" / "index.html").write_text("patched", encoding="utf-8")
+        actual_cli = self.home / "actual-cli"
+        (actual_cli / "Extensions" / "node_modules").mkdir(parents=True)
+        (actual_cli / "Extensions" / "node_modules" / "dep.js").write_text("module", encoding="utf-8")
+        write_exec(actual_cli / "spicetify", "#!/bin/sh\nexit 0\n")
+        (self.home / ".local" / "bin").mkdir(parents=True)
+        (self.home / ".local" / "bin" / "spicetify").symlink_to(actual_cli / "spicetify")
+        (app / "Apps" / "xpui" / "extensions" / "node_modules").symlink_to(
+            actual_cli / "Extensions" / "node_modules"
+        )
+        result = self.bash(
+            """
+            _validate_app %s
+            printf 'rc=%%s\n' "$?"
+            """
+            % app,
+            env={"PATH": f"{self.test_path_nospice}:{self.home}/.local/bin"},
+        )
+        self.assertIn("rc=0", result.stdout)
+
+    def test_unexpected_node_modules_lookalikes_are_rejected(self) -> None:
+        trusted = self.config_home / "spicetify" / "Extensions" / "node_modules"
+        trusted.mkdir(parents=True)
+        (trusted / "dep.js").write_text("module", encoding="utf-8")
+        outside = self.root / "outside-modules"
+        outside.mkdir()
+        cases = [
+            ("node_modules", outside),
+            ("node_modules2", trusted),
+            ("node_modules", trusted / "nested"),
+        ]
+        for name, target in cases:
+            app = self.root / f"link-app-{name}-{target.name}"
+            (app / "Apps" / "xpui" / "extensions").mkdir(parents=True)
+            (app / "Apps" / "xpui" / "index.html").write_text("patched", encoding="utf-8")
+            (target / "nested").mkdir(exist_ok=True)
+            (app / "Apps" / "xpui" / "extensions" / name).symlink_to(target)
+            result = self.bash(
+                """
+                _validate_app %s
+                printf 'rc=%%s\n' "$?"
+                """
+                % app
+            )
+            self.assertIn("rc=1", result.stdout, f"unexpectedly allowed {name} -> {target}")
+
     def test_paths_with_spaces(self) -> None:
         app = self.root / "My Spotify" / "app"
         prefs = self.root / "My Spotify" / "prefs file"
@@ -1203,6 +1269,59 @@ class RestoreAndUninstallTests(Harness):
         self.assertIn('export PATH="$HOME/.spicetify-old:$PATH"', content)
         self.assertIn("alias hi='echo hi'", content)
         self.assertNotIn("# >>> spicetify-universal >>>", content)
+
+    def test_uninstall_preserves_xdg_config_root_named_spicetify(self) -> None:
+        (self.home / ".spicetify").mkdir()
+        write_exec(self.home / ".spicetify" / "spicetify", FAKE_SPICETIFY_BODY)
+        xdg = self.home / "spicetify"
+        (xdg / "other-app").mkdir(parents=True)
+        (xdg / "config-xpui.ini").write_text("[Setting]\n", encoding="utf-8")
+        sentinel = xdg / "other-app" / "settings.ini"
+        sentinel.write_text("keep", encoding="utf-8")
+        app, prefs = self.make_native_install(
+            self.root / "native" / "app", self.root / "native" / "prefs"
+        )
+        result = self.bash(
+            """
+            SPOTIFY_TYPE_OPT=native
+            SPOTIFY_PATH_OPT=%s
+            PREFS_PATH_OPT=%s
+            ASSUME_YES=1
+            ( _run_uninstall )
+            printf 'rc=%%s\n' "$?"
+            """
+            % (app, prefs),
+            env={"XDG_CONFIG_HOME": str(xdg), "SPICETIFY_CONFIG": str(xdg)},
+        )
+        self.assertIn("rc=0", result.stdout)
+        self.assertTrue((xdg / "config-xpui.ini").exists())
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+        self.assertIn("protected HOME/XDG root", self.combined(result))
+
+    def test_uninstall_preserves_canonical_xdg_alias_and_ancestor(self) -> None:
+        real = self.home / "spicetify"
+        real.mkdir()
+        (real / "config-xpui.ini").write_text("[Setting]\n", encoding="utf-8")
+        alias = self.home / "xdg-link"
+        alias.symlink_to(real)
+        result = self.bash(
+            """
+            _collect_targets
+            printf 'SAFE:%s\n' "${SAFE_TARGETS[@]:-}"
+            """,
+            env={"XDG_CONFIG_HOME": str(alias), "SPICETIFY_CONFIG": str(real)},
+        )
+        self.assertNotIn(f"SAFE:{real}", result.stdout)
+        nested = real / "nested"
+        nested.mkdir()
+        result = self.bash(
+            """
+            _collect_targets
+            printf 'SAFE:%s\n' "${SAFE_TARGETS[@]:-}"
+            """,
+            env={"XDG_CONFIG_HOME": str(nested), "SPICETIFY_CONFIG": str(real)},
+        )
+        self.assertNotIn(f"SAFE:{real}", result.stdout)
 
     def test_uninstall_without_cli_and_with_traces_aborts(self) -> None:
         (self.config_home / "spicetify").mkdir(parents=True)

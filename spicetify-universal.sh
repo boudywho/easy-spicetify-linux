@@ -444,12 +444,25 @@ _infer_type() {
 }
 
 _validate_app_links() {
-    local resolved="$1" link target
+    local resolved="$1" link target allowed_root allowed_target trusted=0 bin_dir="" canonical_bin=""
     command_exists find || return 0
+    if _find_spicetify; then
+        canonical_bin=$(_canonical "${SPICETIFY_BIN}") || canonical_bin="${SPICETIFY_BIN}"
+        bin_dir=$(dirname -- "${canonical_bin}")
+    fi
     while IFS= read -r -d '' link; do
         target=$(_canonical "${link}") || { err "Could not resolve symlink inside Apps: ${link}"; return 1; }
-        if [[ "${target}" != "${resolved}/Apps" && "${target}" != "${resolved}/Apps/"* ]]; then
-            err "Refusing a symlink inside Apps that escapes the installation: ${link} -> ${target}"
+        trusted=0
+        if [[ "${link}" == "${resolved}/Apps/xpui/extensions/node_modules" && -d "${target}" ]]; then
+            for allowed_root in "${SPICETIFY_CONFIG_DIR}/Extensions/node_modules" "${bin_dir:+${bin_dir}/Extensions/node_modules}"; do
+                [[ -n "${allowed_root}" && -d "${allowed_root}" ]] || continue
+                allowed_target=$(_canonical "${allowed_root}") || continue
+                if [[ "${target}" == "${allowed_target}" ]]; then trusted=1; break; fi
+            done
+        fi
+        if (( trusted == 0 )); then
+            err "Refusing an unexpected symlink inside Apps: ${link} -> ${target}"
+            detail "Only xpui/extensions/node_modules may link to the trusted Extensions/node_modules directory."
             return 1
         fi
     done < <(find "${resolved}/Apps" -type l -print0)
@@ -641,8 +654,8 @@ _ensure_writable() {
     if _is_user_owned "${app}"; then
         running "Granting user-only write access to ${app} and ${app}/Apps..."
         chmod u+rwX -- "${app}" || { err "Could not grant app-root access."; return 1; }
-        find "${app}/Apps" -type d -exec chmod u+rwX -- {} + || { err "Could not grant Apps directory access."; return 1; }
-        find "${app}/Apps" -type f -exec chmod u+rw -- {} + || { err "Could not grant Apps file access."; return 1; }
+        find -P "${app}/Apps" -type d -exec chmod u+rwX -- {} + || { err "Could not grant Apps directory access."; return 1; }
+        find -P "${app}/Apps" -type f -exec chmod u+rw -- {} + || { err "Could not grant Apps file access."; return 1; }
         [[ -w "${app}" && -w "${app}/Apps" ]] || { err "Spotify is still not writable: ${app}"; return 1; }
         ok "User write access granted."
         return 0
@@ -939,6 +952,18 @@ _run_restore() {
     ok "Spotify restored. CLI, themes, settings and backups were preserved."
 }
 
+_target_hits_protected_root() {
+    local target="$1" root resolved
+    for root in "${HOME}" "${XDG_CONFIG_HOME:-${HOME}/.config}" "${XDG_STATE_HOME:-${HOME}/.local/state}" "${XDG_DATA_HOME:-${HOME}/.local/share}"; do
+        resolved=$(_canonical "${root}") || continue
+        [[ -n "${resolved}" ]] || continue
+        if [[ "${target}" == "${resolved}" || "${resolved}" == "${target}/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 _consider_target() {
     local path="$1" leaf="$2" kind="$3" resolved=""
     [[ -e "${path}" ]] || return 0
@@ -947,6 +972,11 @@ _consider_target() {
     if _broad_path "${resolved}" || [[ "${resolved}" != "${HOME}/"* || "$(basename -- "${resolved}")" != "${leaf}" ]]; then
         warn "Preserving untrusted ${kind} path (expected a dedicated '${leaf}' directory under HOME): ${resolved}"
         detail "Remove it manually only after verifying it is Spicetify-managed."
+        return 0
+    fi
+    if _target_hits_protected_root "${resolved}"; then
+        warn "Preserving ${kind} path because it is a protected HOME/XDG root (or contains one): ${resolved}"
+        detail "Refusing to delete an XDG/HOME root; remove only a dedicated Spicetify directory manually."
         return 0
     fi
     case "${kind}" in

@@ -47,7 +47,7 @@ All notable changes to easy-spicetify-linux are documented in this file.
 - `printf` argument mismatches, nounset `EUID`/`SUDO_USER` paths, and Flatpak process detection
   (`--columns=application`) fixed.
 - Quoted Spotify prefs versions are handled when comparing backup state.
-- Nested external symlinks under `Apps` are rejected; internal containment is allowed.
+- Nested symlinks under `Apps` are rejected except the exact upstream `xpui/extensions/node_modules` link to a trusted `Extensions/node_modules` directory; arbitrary internal containment is not trusted.
 - Marketplace no longer inherits the upstream theme-replacement bug and no longer resets extra
   settings.
 
